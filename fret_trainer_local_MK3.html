@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Fret Trainer — First Implementation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#fafafa; --card:#fff; --text:#222; --muted:#6b7280;
+      --accent:#0a84ff; --ok:#34c759; --shadow:0 4px 16px rgba(0,0,0,.08);
+      --barA:#6fa8ff; --barB:#2e7cff;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font-family:"SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display:flex;flex-direction:column;align-items:center;padding:28px}
+    header{font-size:24px;font-weight:600;margin-bottom:20px}
+
+    .card{background:var(--card);border-radius:20px;box-shadow:var(--shadow);padding:24px;margin-bottom:16px;width:min(900px,92vw)}
+
+    .quiz-label{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;text-align:center}
+    .quiz-note{font-size:88px;font-weight:800;line-height:1;margin:0;text-align:center}
+    .quiz-string{font-size:36px;color:#444;text-align:center;margin-top:8px}
+    .status{min-height:24px;text-align:center;margin-top:10px;font-size:15px;color:#2e8b57}
+
+    .controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:18px}
+    button{font-size:15px;padding:10px 18px;border-radius:12px;border:none;cursor:pointer;background:#f0f0f5;transition:background .2s,opacity .2s}
+    button:hover{background:#e0e0eb}
+    .primary{background:var(--accent);color:#fff}
+    .primary:hover{background:#0a6fd6}
+    .success{background:var(--ok);color:#fff}
+    .success:hover{background:#2caa4c}
+    .ghost{background:#f6f6f8}
+
+    .picker{margin-top:14px}
+    .picker h3{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px}
+    .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+    .row label{cursor:pointer}
+    .row select{padding:8px 10px;border-radius:10px;border:1px solid #ddd;background:#fff;font-size:14px}
+    .string-pills{display:flex;flex-wrap:wrap;gap:10px}
+
+    /* Fretboard (clean, minimal) */
+    .fretboard-wrap{margin-top:18px}
+    .fretboard-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px}
+    .fretboard{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:var(--shadow);padding:16px}
+    .fb-svg{width:100%;height:auto;display:block}
+
+    /* Progress bottom */
+    .progress{margin-top:22px}
+    .progress h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 10px}
+    .bar-row{display:flex;align-items:center;gap:10px;margin:8px 0}
+    .bar-label{width:32px;font-weight:600}
+    .bar-wrap{flex:1;height:10px;background:#eee;border-radius:6px;overflow:hidden}
+    .bar{height:100%;background:linear-gradient(90deg,var(--barA),var(--barB));width:0%}
+    .bar-info{width:160px;text-align:right;color:#555;font-size:12px}
+
+    /* ====== Mic Setup Modal ====== */
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.35);z-index:9999}
+    .modal.open{display:flex}
+    .modal-card{width:min(560px,92vw);background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:20px}
+    .modal-title{font-size:18px;font-weight:700;margin:0 0 12px}
+    .modal-desc{font-size:13px;color:#666;margin:0 0 16px}
+    .field{margin:14px 0}
+    .field label{font-size:14px;color:#333;display:block;margin-bottom:6px}
+    .range-row{display:flex;align-items:center;gap:10px}
+    .range-row input[type="range"]{flex:1}
+    .hint{font-size:12px;color:#777;margin-top:6px}
+    .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid #e5e7eb;background:#f7f7f9;cursor:pointer}
+    .btn.primary{background:#0a84ff;color:#fff;border-color:#0a84ff}
+    .btn:hover{filter:brightness(.98)}
+
+    /* Level Meter */
+    .meter{margin-top:8px}
+    .meter-bg{position:relative;height:14px;border-radius:8px;overflow:hidden;background:linear-gradient(90deg,#2ecc71,#f1c40f,#e74c3c)}
+    .meter-bar{position:absolute;left:0;top:0;bottom:0;width:0%;background:rgba(255,255,255,.6)}
+    .meter-target{position:absolute;top:0;bottom:0;background:rgba(52,199,89,.18);border-left:1px dashed #34c759;border-right:1px dashed #34c759}
+    .meter-gate{position:absolute;top:-3px;bottom:-3px;width:2px;background:#555}
+    .meter-legend{display:flex;justify-content:space-between;font-size:11px;color:#666;margin-top:4px}
+    .meter-values{font-size:12px;color:#333;margin-top:4px;text-align:right}
+  </style>
+</head>
+<body>
+  <header>Fret Trainer</header>
+
+  <!-- Quiz card -->
+  <section class="card" id="quizCard">
+    <div class="quiz-label">Current Question</div>
+    <h1 class="quiz-note" id="targetNote">C</h1>
+    <div class="quiz-string" id="targetString">String 3</div>
+    <div class="status" id="statusText">Mic Off</div>
+
+    <div class="controls">
+      <button class="success" id="startBtn" aria-pressed="false">Start</button>
+      <button class="primary" id="micBtn" aria-pressed="false">Mic ON</button>
+      <button class="ghost" id="exportBtn">Export CSV</button>
+      <button class="ghost" id="importBtn">Import CSV</button>
+      <input type="file" id="importInput" accept=".csv" style="display:none" />
+    </div>
+
+    <div class="picker">
+      <h3>Instrument</h3>
+      <div class="row" id="instrumentRow">
+        <label><input type="radio" name="category" value="guitar" checked> Guitar</label>
+        <label><input type="radio" name="category" value="bass"> Bass</label>
+        <select id="variantSelect" title="Variant"></select>
+      </div>
+    </div>
+
+    <div class="picker">
+      <h3>Strings to include</h3>
+      <div class="string-pills" id="stringPicker"></div>
+    </div>
+
+    <!-- Fretboard appears after correct and stays until next correct -->
+    <div class="fretboard-wrap" id="fbWrap" style="display:none">
+      <div class="fretboard-title">Fretboard (0–12)</div>
+      <div class="fretboard"><svg id="fbSvg" class="fb-svg" viewBox="0 0 860 220" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+
+    <!-- Progress at bottom -->
+    <div class="progress">
+      <h2 id="progressTitle">Progress (Last 20) — Guitar</h2>
+      <div id="bars"></div>
+    </div>
+  </section>
+
+  <!-- ====== Mic Setup Modal (App-internal popup) ====== -->
+  <div id="micModal" class="modal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="micTitle">
+      <h2 id="micTitle" class="modal-title">Microphone Setup</h2>
+      <p class="modal-desc">Adjust input gain and enable mobile noise‑resistant mode before starting.</p>
+
+      <div class="field">
+        <label for="gainSlider">Gain Match</label>
+        <div class="range-row">
+          <input type="range" id="gainSlider" min="0.4" max="3.0" step="0.1" value="1.0" />
+          <span id="gainValue" style="width:46px;text-align:right">1.0×</span>
+        </div>
+        <div class="hint">If the instrument feels too quiet on phone mics, raise to 1.4–2.0×.</div>
+      </div>
+
+      <!-- Live meters -->
+      <div class="field">
+        <label>Input Level (pre‑gain)</label>
+        <div class="meter">
+          <div class="meter-bg" id="meterBgIn">
+            <div class="meter-target" id="meterTargetIn"></div>
+            <div class="meter-gate" id="gateIn"></div>
+            <div class="meter-bar" id="meterIn"></div>
+          </div>
+          <div class="meter-legend"><span>-60 dB</span><span>-30 dB</span><span>-10 dB</span><span>0 dB</span></div>
+          <div class="meter-values"><span id="dbIn">-∞ dB</span></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Post‑Gain Level</label>
+        <div class="meter">
+          <div class="meter-bg" id="meterBgOut">
+            <div class="meter-target" id="meterTargetOut"></div>
+            <div class="meter-gate" id="gateOut"></div>
+            <div class="meter-bar" id="meterOut"></div>
+          </div>
+          <div class="meter-legend"><span>-60 dB</span><span>-30 dB</span><span>-10 dB</span><span>0 dB</span></div>
+          <div class="meter-values"><span id="dbOut">-∞ dB</span></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label><input type="checkbox" id="mobileNoise" /> Mobile noise‑resistant mode</label>
+        <div class="hint">Tighter high‑pass/low‑pass filters and a stronger noise gate for typical smartphone environments.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="micPreview" class="btn">Preview</button>
+        <button id="micCancel" class="btn">Cancel</button>
+        <button id="micConfirm" class="btn primary">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  /* =============================
+     Config / Theory
+  ============================= */
+  const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+  const TUNINGS = {
+    guitar6: ["E4","B3","G3","D3","A2","E2"],
+    bass4:   ["G2","D2","A1","E1"],
+    bass5:   ["G2","D2","A1","E1","B0"],
+    bass6:   ["C3","G2","D2","A1","E1","B0"],
+  };
+  const VARIANTS = {
+    guitar: [{id:"guitar6", label:"Guitar 6"}],
+    bass:   [{id:"bass4", label:"Bass 4"},{id:"bass5", label:"Bass 5"},{id:"bass6", label:"Bass 6"}],
+  };
+
+  /* ==== TUNING (UX調整しやすいようにまとめ) ==== */
+  const HOLD_TIME_MS = 670;      // 正解ホールド（速さ重視→300、安定→700–1000）
+  const START_IGNORE_MS = 500;   // 新問題直後は判定無視（二重正解対策）
+  const NEXT_QUESTION_DELAY_MS = 650; // 正解→次問の遅延（0=手動 Start）
+  const FFT_SIZE = 4096;         // 4096=レスポンス / 8192=低音安定
+  const LAST_N = 20;
+  const MIN_RT = 300, MAX_RT = 3000;
+  const WRONG_LOG_COOLDOWN = 800;
+
+  /* ===== Noise gate (mobile modeで強く) ===== */
+  let NOISE_GATE_RMS = 0.008;    // 通常
+  const NOISE_GATE_RMS_MOBILE = 0.02; // スマホ環境向け（強め）
+
+  /* =============================
+     State
+  ============================= */
+  let category = 'guitar';
+  let variant  = 'guitar6';
+  let fretMap  = buildFretMap(variant);
+
+  let selectedStrings = [];
+  let current = { note:'C', string:3, fret:0 };
+
+  let listening=false, ctx=null, analyser=null, srcNode=null, hp=null, lp=null, gainNode=null, rafId=null;
+  let holdStart=null, questionStartAt=0, questionIssuedAt=0, lastWrongAt=0;
+  let previewActive=false, meterRAF=null, preAnalyser=null, postAnalyser=null, previewStream=null;
+
+  const results = []; // {timestamp, category, note, string, fret, result, rt_ms}
+
+  /* =============================
+     DOM refs
+  ============================= */
+  const targetNoteEl = document.getElementById('targetNote');
+  const targetStringEl = document.getElementById('targetString');
+  const statusEl = document.getElementById('statusText');
+  const barsEl = document.getElementById('bars');
+  const progressTitleEl = document.getElementById('progressTitle');
+  const fbWrap = document.getElementById('fbWrap');
+  const fbSvg = document.getElementById('fbSvg');
+
+  // Modal refs
+  const micModal = document.getElementById('micModal');
+  const gainSlider = document.getElementById('gainSlider');
+  const gainValue = document.getElementById('gainValue');
+  const mobileNoiseCb = document.getElementById('mobileNoise');
+  const meterIn = document.getElementById('meterIn');
+  const meterOut = document.getElementById('meterOut');
+  const dbInEl = document.getElementById('dbIn');
+  const dbOutEl = document.getElementById('dbOut');
+  const gateIn = document.getElementById('gateIn');
+  const gateOut = document.getElementById('gateOut');
+  const meterTargetIn = document.getElementById('meterTargetIn');
+  const meterTargetOut = document.getElementById('meterTargetOut');
+
+  // setup target zone (-20 to -10 dB) in percent of the bar width
+  function setTargetZones(){
+    const toPct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100)); // -60..0 dB -> 0..100%
+    const leftPct = toPct(-20), rightPct = toPct(-10);
+    [meterTargetIn, meterTargetOut].forEach(el=>{
+      el.style.left = leftPct + '%';
+      el.style.width = (rightPct - leftPct) + '%';
+    });
+  }
+  setTargetZones();
+
+  document.getElementById('micCancel').addEventListener('click', ()=>{ stopPreviewIfIdle(); closeMicModal(); });
+  document.getElementById('micConfirm').addEventListener('click', async ()=>{
+    const gain = parseFloat(gainSlider.value || "1");
+    const mobile = !!mobileNoiseCb.checked;
+    if (previewActive) {
+      // 既にプレビュー中なら、そのまま検出を開始
+      listening = true;
+      document.getElementById('micBtn').textContent='Mic OFF';
+      document.getElementById('micBtn').setAttribute('aria-pressed','true');
+      statusEl.textContent='Listening…';
+      closeMicModal();
+      loopDetect();
+    } else {
+      closeMicModal();
+      await startMic(gain, mobile);
+    }
+  });
+  document.getElementById('micPreview').addEventListener('click', async ()=>{
+    const gain = parseFloat(gainSlider.value || "1");
+    const mobile = !!mobileNoiseCb.checked;
+    await startPreview(gain, mobile);
+  });
+  gainSlider.addEventListener('input', ()=>{
+    gainValue.textContent = Number(gainSlider.value).toFixed(1) + '×';
+    if (gainNode) gainNode.gain.value = parseFloat(gainSlider.value);
+  });
+  mobileNoiseCb.addEventListener('change', ()=>{
+    if(!ctx) return;
+    const mobile = !!mobileNoiseCb.checked;
+    if(mobile){ hp.frequency.value=80; lp.frequency.value=1000; NOISE_GATE_RMS = NOISE_GATE_RMS_MOBILE; }
+    else { hp.frequency.value=30; lp.frequency.value=1200; NOISE_GATE_RMS = 0.008; }
+    // 更新されたゲート位置をメーターに反映
+    updateGateMarkers();
+  });
+
+  function openMicModal(){ micModal.classList.add('open'); micModal.setAttribute('aria-hidden','false'); }
+  function closeMicModal(){ micModal.classList.remove('open'); micModal.setAttribute('aria-hidden','true'); }
+
+  /* =============================
+     Helpers
+  ============================= */
+  function noteNameToMidi(s){
+    const m = s.match(/^([A-G])(#?)(-?\d+)$/);
+    const name = m[1]+(m[2]||""); const oct=parseInt(m[3],10);
+    return (oct+1)*12 + NOTE_NAMES.indexOf(name);
+  }
+  function freqToNoteName(freq){
+    if(!freq || !isFinite(freq) || freq<=0) return null;
+    const midi = Math.round(69 + 12*Math.log2(freq/440));
+    return NOTE_NAMES[(midi%12+12)%12];
+  }
+  function buildFretMap(variant){
+    const tuning=TUNINGS[variant]; const map=[]; const MAX_FRET=12;
+    for(let s=0;s<tuning.length;s++){
+      const open=noteNameToMidi(tuning[s]); const arr=[];
+      for(let f=0;f<=MAX_FRET;f++){ const midi=open+f; arr.push({fret:f,name:NOTE_NAMES[(midi%12+12)%12]}); }
+      map.push(arr);
+    } return map;
+  }
+
+  function rebuildVariantSelect(){
+    const sel = document.getElementById('variantSelect'); sel.innerHTML='';
+    VARIANTS[category].forEach(v=>{ const o=document.createElement('option'); o.value=v.id; o.textContent=v.label; sel.appendChild(o); });
+    variant = VARIANTS[category][0].id; sel.value=variant;
+    sel.onchange=()=>{ variant=sel.value; fretMap=buildFretMap(variant); rebuildStringPicker(); chooseQuestion(); renderProgress(); };
+  }
+  function rebuildStringPicker(){
+    const wrap=document.getElementById('stringPicker'); wrap.innerHTML=''; selectedStrings=[];
+    const n=fretMap.length; for(let i=1;i<=n;i++){ const lab=document.createElement('label'); const cb=document.createElement('input'); cb.type='checkbox'; cb.value=String(i); cb.checked=true; cb.onchange=()=>{ if(getSelectedStrings().length===0) cb.checked=true; }; lab.appendChild(cb); lab.appendChild(document.createTextNode(' String '+i)); wrap.appendChild(lab); selectedStrings.push(i); }
+  }
+  function getSelectedStrings(){ return Array.from(document.querySelectorAll('#stringPicker input:checked')).map(el=>parseInt(el.value,10)); }
+
+  /* =============================
+     Quiz flow
+  ============================= */
+  function chooseQuestion(){
+    const usable=getSelectedStrings(); const pool=usable.length?usable:Array.from({length:fretMap.length},(_,i)=>i+1);
+    const s1=pool[Math.floor(Math.random()*pool.length)]; const s0=s1-1;
+    const note=NOTE_NAMES[Math.floor(Math.random()*12)];
+    const posList=fretMap[s0].filter(x=>x.name===note); const pos=posList[Math.floor(Math.random()*posList.length)]||{fret:0,name:note};
+    current.note=note; current.string=s1; current.fret=pos.fret;
+
+    targetNoteEl.textContent=current.note; targetStringEl.textContent=`String ${current.string}`;
+    statusEl.textContent = listening? 'Listening…' : 'Mic Off';
+
+    // reset timers for new question
+    holdStart=null; questionStartAt=performance.now(); questionIssuedAt=performance.now();
+  }
+
+  function markCorrect(){
+    const rt=Math.round(performance.now()-questionStartAt);
+    statusEl.textContent='Correct!';
+    results.push({timestamp:new Date().toISOString(), category, note:current.note, string:current.string, fret:current.fret, result:'correct', rt_ms:rt});
+    playSuccessSound(); renderProgress(); drawFretboard();
+    setTimeout(()=>{ chooseQuestion(); }, NEXT_QUESTION_DELAY_MS);
+  }
+
+  function logWrong(){
+    const now=performance.now(); if(now-lastWrongAt<WRONG_LOG_COOLDOWN) return; lastWrongAt=now;
+    results.push({timestamp:new Date().toISOString(), category, note:current.note, string:current.string, fret:current.fret, result:'wrong', rt_ms:''});
+    renderProgress();
+  }
+
+  /* =============================
+     Fretboard (SVG, clean)
+  ============================= */
+  function drawFretboard(){
+    const tuning = TUNINGS[variant];
+    const strings = tuning.map(n=> n.replace(/\d+$/,'') );
+    const S = strings.length; const F = 12; // 0..12
+    const W = 860, H = 220; const leftPad = 50; const rightPad = 10; const topPad=20; const bottomPad=30;
+    const innerW = W-leftPad-rightPad; const innerH = H-topPad-bottomPad;
+    const fretW = innerW/(F+1); // 0..12 => 13 spaces
+    const stringGap = innerH/(S-1);
+
+    fbSvg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    fbSvg.replaceChildren();
+
+    const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    bg.setAttribute('x',0); bg.setAttribute('y',0); bg.setAttribute('width',W); bg.setAttribute('height',H); bg.setAttribute('fill','#ffffff');
+    fbSvg.appendChild(bg);
+
+    // strings + labels
+    for(let i=0;i<S;i++){
+      const y = topPad + i*stringGap;
+      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1', leftPad); line.setAttribute('x2', leftPad+innerW);
+      line.setAttribute('y1', y); line.setAttribute('y2', y);
+      line.setAttribute('stroke', '#333'); line.setAttribute('stroke-width', i===0?1.2: i===S-1?1.6:1);
+      fbSvg.appendChild(line);
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x', leftPad-18); t.setAttribute('y', y+4); t.setAttribute('text-anchor','end'); t.setAttribute('font-size','12'); t.setAttribute('fill','#444');
+      t.textContent = strings[i]; fbSvg.appendChild(t);
+    }
+
+    // frets: 0は描かない / 1は太線
+    for(let f=0; f<=F; f++){
+      const x = leftPad + f*fretW;
+      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1', x); line.setAttribute('x2', x);
+      line.setAttribute('y1', topPad-4); line.setAttribute('y2', topPad+innerH+4);
+      line.setAttribute('stroke', f===1?'#111':'#bbb'); line.setAttribute('stroke-width', f===1?5:1);
+      if (f!==0) fbSvg.appendChild(line);
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x', x + fretW/2); t.setAttribute('y', H-10); t.setAttribute('text-anchor','middle'); t.setAttribute('font-size','11'); t.setAttribute('fill','#666');
+      t.textContent = String(f); fbSvg.appendChild(t);
+    }
+
+    // dots: 3,5,7,9,12（12はE–A / D–G 間）
+    ;[3,5,7,9,12].forEach(fm => {
+      const cxm = leftPad + fm*fretW + fretW*0.5;
+      if (fm === 12) {
+        const stringsName = TUNINGS[variant].map(n=> n.replace(/\d+$/,''));
+        const idxE_low = stringsName.lastIndexOf('E');
+        const idxA     = stringsName.indexOf('A');
+        const idxD     = stringsName.indexOf('D');
+        const idxG     = stringsName.indexOf('G');
+        const yBetween = (i1,i2) => topPad + ((i1 + i2)/2) * stringGap;
+        const yEA = (idxE_low>=0 && idxA>=0) ? yBetween(idxA, idxE_low) : topPad + (S-1-0.5)*stringGap;
+        const yDG = (idxD>=0 && idxG>=0) ? yBetween(Math.min(idxD,idxG), Math.max(idxD,idxG)) : topPad + (Math.max(1,Math.floor(S/2))-0.5)*stringGap;
+        for (const cy of [yEA, yDG]) {
+          const d = document.createElementNS('http://www.w3.org/2000/svg','circle');
+          d.setAttribute('cx', cxm); d.setAttribute('cy', cy); d.setAttribute('r', 5);
+          d.setAttribute('fill','none'); d.setAttribute('stroke','#bbb'); d.setAttribute('stroke-width','1.5');
+          fbSvg.appendChild(d);
+        }
+      } else {
+        const d = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        d.setAttribute('cx', cxm); d.setAttribute('cy', topPad + innerH*0.50); d.setAttribute('r', 5);
+        d.setAttribute('fill','none'); d.setAttribute('stroke','#bbb'); d.setAttribute('stroke-width','1.5');
+        fbSvg.appendChild(d);
+      }
+    });
+
+    // correct position marker
+    const sIdx = current.string-1; const y = topPad + sIdx*stringGap;
+    const cx = leftPad + (current.fret===0 ? fretW*0.25 : current.fret*fretW + fretW*0.5);
+    const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('cx', cx); circle.setAttribute('cy', y); circle.setAttribute('r', 10);
+    circle.setAttribute('fill', '#ffffff'); circle.setAttribute('stroke', '#0a84ff'); circle.setAttribute('stroke-width', 3);
+    fbSvg.appendChild(circle);
+
+    fbWrap.style.display='block';
+  }
+
+  /* =============================
+     Progress (accuracy × speed)
+  ============================= */
+  function summarize(note){
+    const arr = results.filter(r=>r.category===category && r.note===note);
+    if(arr.length===0) return {acc:0, rt:null, score:0};
+    const recent = arr.slice(-LAST_N); const total=recent.length;
+    const wins = recent.filter(r=>r.result==='correct');
+    const acc = total? wins.length/total : 0;
+    let avgRt = null; if(wins.length){ avgRt = wins.reduce((s,r)=>s+(Number(r.rt_ms)||0),0)/wins.length; }
+    let speed = 0; if(avgRt!=null){ const c=Math.max(MIN_RT,Math.min(MAX_RT,avgRt)); speed=(MAX_RT-c)/(MAX_RT-MIN_RT); }
+    return {acc, rt:avgRt, score: acc*speed};
+  }
+  function renderProgress(){
+    progressTitleEl.textContent = `Progress (Last ${LAST_N}) — ${category==='guitar'?'Guitar':'Bass'}`;
+    barsEl.innerHTML='';
+    NOTE_NAMES.forEach(n=>{
+      const {acc, rt, score} = summarize(n);
+      const row=document.createElement('div'); row.className='bar-row';
+      const lab=document.createElement('div'); lab.className='bar-label'; lab.textContent=n; row.appendChild(lab);
+      const wrap=document.createElement('div'); wrap.className='bar-wrap';
+      const bar=document.createElement('div'); bar.className='bar'; bar.style.width=(score*100).toFixed(0)+'%';
+      wrap.appendChild(bar); row.appendChild(wrap);
+      const info=document.createElement('div'); info.className='bar-info'; info.textContent=`acc:${(acc*100).toFixed(0)}% / rt:${rt==null?'-':Math.round(rt)+'ms'}`; row.appendChild(info);
+      barsEl.appendChild(row);
+    });
+  }
+
+  /* =============================
+     CSV I/O (per category)
+  ============================= */
+  function exportCSV(){
+    const head='timestamp,category,note,string,fret,result,rt_ms\n';
+    const rows=results.filter(r=>r.category===category).map(r=>`${r.timestamp},${r.category},${r.note},${r.string},${r.fret},${r.result},${r.rt_ms}`).join('\n');
+    const blob=new Blob([head+rows+(rows?'\n':'')],{type:'text/csv'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${category}_results.csv`; a.click();
+  }
+  function importCSVFile(file){
+    const reader=new FileReader(); reader.onload=(e)=>{
+      const lines=e.target.result.split(/\r?\n/).slice(1); let added=0;
+      lines.forEach(line=>{ if(!line.trim()) return; const [timestamp,cat,note,string,fret,result,rt_ms]=line.split(','); results.push({timestamp,category:cat,note,string:Number(string),fret:Number(fret),result,rt_ms:rt_ms||''}); added++; });
+      renderProgress(); statusEl.textContent=`Imported ${added} rows`; setTimeout(()=>{ statusEl.textContent=listening?'Listening…':'Mic Off'; }, 900);
+    }; reader.readAsText(file);
+  }
+
+  /* =============================
+     Audio & Pitch + Preview/Meter
+  ============================= */
+  document.getElementById('micBtn').addEventListener('click', ()=>{
+    if(listening){ stopMic(); }
+    else { openMicModal(); setTargetZones(); updateGateMarkers(); }
+  });
+
+  async function startPreview(gainValue=1.0, mobile=false){
+    if (previewActive) return; // already
+    try{
+      previewStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+      ctx=new (window.AudioContext||window.webkitAudioContext)();
+      // nodes for preview & detection (we reuse later)
+      preAnalyser = ctx.createAnalyser(); preAnalyser.fftSize = FFT_SIZE;
+      analyser    = ctx.createAnalyser(); analyser.fftSize = FFT_SIZE;
+      postAnalyser= ctx.createAnalyser(); postAnalyser.fftSize = FFT_SIZE;
+      hp=ctx.createBiquadFilter(); hp.type='highpass';
+      lp=ctx.createBiquadFilter(); lp.type='lowpass';
+      gainNode = ctx.createGain(); gainNode.gain.value = gainValue;
+
+      if(mobile){ hp.frequency.value=80; lp.frequency.value=1000; NOISE_GATE_RMS = NOISE_GATE_RMS_MOBILE; }
+      else { hp.frequency.value=30; lp.frequency.value=1200; NOISE_GATE_RMS = 0.008; }
+
+      srcNode = ctx.createMediaStreamSource(previewStream);
+      // split for meters
+      srcNode.connect(preAnalyser);
+      srcNode.connect(gainNode).connect(hp); hp.connect(lp); lp.connect(analyser); // detection path
+      lp.connect(postAnalyser); // for post‑gain meter
+
+      previewActive = true;
+      statusEl.textContent = 'Mic Preview…';
+      startMeterLoop();
+      updateGateMarkers();
+    }catch(err){ alert('Mic error: '+err.message); }
+  }
+
+  async function startMic(gainValue=1.0, mobile=false){
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+      ctx=new (window.AudioContext||window.webkitAudioContext)();
+      analyser=ctx.createAnalyser(); analyser.fftSize = FFT_SIZE;
+      hp=ctx.createBiquadFilter(); hp.type='highpass';
+      lp=ctx.createBiquadFilter(); lp.type='lowpass';
+      gainNode = ctx.createGain(); gainNode.gain.value=gainValue;
+
+      if(mobile){ hp.frequency.value=80; lp.frequency.value=1000; NOISE_GATE_RMS = NOISE_GATE_RMS_MOBILE; }
+      else { hp.frequency.value=30; lp.frequency.value=1200; NOISE_GATE_RMS = 0.008; }
+
+      srcNode=ctx.createMediaStreamSource(stream);
+      srcNode.connect(gainNode).connect(hp); hp.connect(lp); lp.connect(analyser);
+
+      listening=true; document.getElementById('micBtn').textContent='Mic OFF'; document.getElementById('micBtn').setAttribute('aria-pressed','true'); statusEl.textContent='Listening…';
+      loopDetect();
+    }catch(err){ alert('Mic error: '+err.message); }
+  }
+
+  function stopMic(){
+    listening=false; if(rafId) cancelAnimationFrame(rafId);
+    stopMeterLoop();
+    try{
+      if(srcNode) srcNode.disconnect(); if(gainNode) gainNode.disconnect(); if(hp) hp.disconnect(); if(lp) lp.disconnect(); if(analyser) analyser.disconnect();
+      if(preAnalyser) preAnalyser.disconnect(); if(postAnalyser) postAnalyser.disconnect();
+    }catch(_){ }
+    if(ctx){ ctx.close(); ctx=null; }
+    if(previewStream){ previewStream.getTracks().forEach(t=>t.stop()); previewStream=null; }
+    analyser=null; srcNode=null; hp=null; lp=null; gainNode=null; preAnalyser=null; postAnalyser=null; previewActive=false;
+    document.getElementById('micBtn').textContent='Mic ON'; document.getElementById('micBtn').setAttribute('aria-pressed','false'); statusEl.textContent='Mic Off';
+  }
+
+  function loopDetect(){
+    if(!listening) return;
+    const buf=new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(buf);
+    const f=autoCorrelate(buf,ctx.sampleRate);
+    if(f && f>30 && f<1500){ const n=freqToNoteName(f); if(n) handleDetected(n); } else { holdStart=null; }
+    rafId=requestAnimationFrame(loopDetect);
+  }
+  function handleDetected(name){
+    if (performance.now() - questionIssuedAt < START_IGNORE_MS) return;
+    const now=performance.now();
+    if(name===current.note){ if(!holdStart) holdStart=now; if(now-holdStart>=HOLD_TIME_MS){ markCorrect(); holdStart=null; } }
+    else { holdStart=null; logWrong(); }
+  }
+
+  // ====== Meter loop ======
+  function startMeterLoop(){
+    if(meterRAF) cancelAnimationFrame(meterRAF);
+    const inBuf = new Float32Array(preAnalyser.fftSize);
+    const outBuf= new Float32Array((postAnalyser||analyser).fftSize);
+    const toDb = (rms)=> (rms>0? 20*Math.log10(rms) : -Infinity);
+    const toPct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100)); // -60..0 -> 0..100
+
+    const tick = ()=>{
+      if(!previewActive) return;
+      preAnalyser.getFloatTimeDomainData(inBuf);
+      let rmsIn=0; for(let i=0;i<inBuf.length;i++){ const v=inBuf[i]; rmsIn+=v*v; } rmsIn=Math.sqrt(rmsIn/inBuf.length);
+      const dbIn = toDb(rmsIn); dbInEl.textContent = (isFinite(dbIn)? dbIn.toFixed(1) : '-∞')+ ' dB';
+      meterIn.style.width = toPct(isFinite(dbIn)? dbIn : -60) + '%';
+
+      (postAnalyser||analyser).getFloatTimeDomainData(outBuf);
+      let rmsOut=0; for(let i=0;i<outBuf.length;i++){ const v=outBuf[i]; rmsOut+=v*v; } rmsOut=Math.sqrt(rmsOut/outBuf.length);
+      const dbOut = toDb(rmsOut); dbOutEl.textContent = (isFinite(dbOut)? dbOut.toFixed(1) : '-∞')+ ' dB';
+      meterOut.style.width = toPct(isFinite(dbOut)? dbOut : -60) + '%';
+
+      meterRAF = requestAnimationFrame(tick);
+    };
+    updateGateMarkers();
+    meterRAF = requestAnimationFrame(tick);
+  }
+  function stopMeterLoop(){ if(meterRAF) cancelAnimationFrame(meterRAF); meterRAF=null; }
+  function stopPreviewIfIdle(){ if(previewActive && !listening){ stopMic(); } }
+  function updateGateMarkers(){
+    const toPct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+    const gateDb = 20*Math.log10(NOISE_GATE_RMS);
+    gateIn.style.left  = toPct(gateDb) + '%';
+    gateOut.style.left = toPct(gateDb) + '%';
+  }
+
+  function autoCorrelate(buf, sr){
+    const N=buf.length; let rms=0; for(let i=0;i<N;i++){ rms+=buf[i]*buf[i]; }
+    rms=Math.sqrt(rms/N); if(rms < NOISE_GATE_RMS) return null; // 可変ゲート
+    let r1=0,r2=N-1,t=0.2; for(let i=0;i<N/2;i++){ if(Math.abs(buf[i])<t){ r1=i; break; } }
+    for(let i=1;i<N/2;i++){ if(Math.abs(buf[N-i])<t){ r2=N-i; break; } }
+    const b=buf.slice(r1,r2); const M=b.length; if(M<64) return null;
+    const c=new Float32Array(M); for(let lag=0;lag<M;lag++){ let s=0; for(let i=0;i<M-lag;i++) s+=b[i]*b[i+lag]; c[lag]=s; }
+    let d=0; while(d<M-1 && c[d]>c[d+1]) d++; let max=-1,pos=-1; for(let i=d;i<M;i++){ if(c[i]>max){ max=c[i]; pos=i; } }
+    if(pos<=0) return null; const y0=c[pos-1]||0,y1=c[pos],y2=c[pos+1]||0; const shift=(y2-y0)/(2*(2*y1-y2-y0)||1); return sr/(pos+shift);
+  }
+
+  function playSuccessSound(){
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    [261.63,329.63,392.00].forEach(f=>{ const o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.value=f; g.gain.setValueAtTime(.18,ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+.9); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime+.92); });
+  }
+
+  /* =============================
+     Wire-up
+  ============================= */
+  document.getElementById('startBtn').addEventListener('click', ()=>{ chooseQuestion(); const btn=document.getElementById('startBtn'); btn.setAttribute('aria-pressed','true'); btn.style.opacity='.9'; setTimeout(()=>{ btn.setAttribute('aria-pressed','false'); btn.style.opacity='1'; }, 140); });
+  document.getElementById('exportBtn').addEventListener('click', exportCSV);
+  document.getElementById('importBtn').addEventListener('click', ()=> document.getElementById('importInput').click());
+  document.getElementById('importInput').addEventListener('change', (e)=>{ if(e.target.files[0]) importCSVFile(e.target.files[0]); e.target.value=''; });
+  Array.from(document.querySelectorAll('input[name="category"]')).forEach(r=> r.addEventListener('change', (e)=>{ category=e.target.value; rebuildVariantSelect(); fretMap=buildFretMap(variant); rebuildStringPicker(); chooseQuestion(); renderProgress(); }));
+
+  // init
+  rebuildVariantSelect(); rebuildStringPicker(); chooseQuestion(); renderProgress();
+  </script>
+
+</body>
+</html>
